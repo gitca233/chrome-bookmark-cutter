@@ -1,0 +1,148 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Chrome 书签文件夹裁剪器</title>
+<style>
+*{box-sizing:border-box}body{margin:0;font:14px -apple-system,BlinkMacSystemFont,"SF Pro Text","Helvetica Neue",Arial,sans-serif;background:#f5f5f7;color:#1d1d1f}
+.wrap{max-width:1050px;margin:40px auto;padding:0 24px}.card{background:#fff;border:1px solid #ddd;border-radius:14px;padding:22px;box-shadow:0 2px 10px #00000008}
+h1{font-size:24px;margin:0 0 8px}.sub{color:#6e6e73;margin-bottom:20px}
+input[type=file]{display:none}.pick{display:inline-block;padding:10px 16px;border-radius:9px;background:#1d1d1f;color:white;cursor:pointer}.status{margin-left:12px;color:#6e6e73}
+.toolbar{display:flex;gap:8px;align-items:center;margin:18px 0}.toolbar button{border:1px solid #d2d2d7;background:#fff;border-radius:8px;padding:8px 12px;cursor:pointer}.toolbar .export{background:#0071e3;color:#fff;border-color:#0071e3;font-weight:600;margin-left:auto}
+.tree{border:1px solid #e1e1e1;border-radius:10px;padding:12px;max-height:570px;overflow:auto}.tree ul{list-style:none;margin:0;padding-left:24px}.tree>ul{padding-left:0}.row{display:flex;align-items:center;gap:7px;min-height:31px}.row label{cursor:pointer}.folder{font-weight:600}.count{font-size:12px;color:#86868b;margin-left:4px}
+.note{margin-top:15px;color:#6e6e73;font-size:13px;line-height:1.6}
+.empty{text-align:center;padding:70px 20px;color:#86868b}
+</style>
+</head>
+<body>
+<div class="wrap">
+<div class="card">
+<h1>Chrome 书签文件夹裁剪器</h1>
+<div class="sub">本地运行。选择 Chrome 导出的 bookmarks.html，只选择需要长期保存的文件夹，然后导出新的 HTML 书签文件。</div>
+<label class="pick" for="file">选择 bookmarks.html</label>
+<input id="file" type="file" accept=".html,text/html">
+<span id="status" class="status">尚未选择文件</span>
+
+<div id="area" style="display:none">
+<div class="toolbar">
+<button id="all">全选</button><button id="none">全不选</button><button id="top">只选顶层文件夹</button>
+<span id="selected" class="status"></span>
+<button id="export" class="export">导出选中的文件夹</button>
+</div>
+<div id="tree" class="tree"></div>
+<div class="note">
+导出的文件保持 Chrome Bookmark HTML 的标准结构。只会包含你勾选的文件夹及其全部子内容；未勾选的文件夹不会导出。<br>
+处理完全在浏览器本地完成，书签内容不会上传。
+</div>
+</div>
+<div id="empty" class="empty">例如：选择一个 Chrome 导出的 bookmarks.html</div>
+</div>
+</div>
+
+<script>
+let roots=[], selected=new Set(), folderId=0;
+
+function parseBookmarks(text){
+  const doc=new DOMParser().parseFromString(text,"text/html");
+  const root=doc.querySelector("DL");
+  if(!root) throw new Error("不是有效的 Chrome 书签 HTML 文件");
+  function parseDL(dl){
+    const out=[];
+    let node=dl.firstElementChild;
+    while(node){
+      if(node.tagName==="DT"){
+        const h3=node.querySelector(":scope > H3");
+        if(h3){
+          const sub=h3.nextElementSibling;
+          const f={type:"folder",id:"f"+(++folderId),name:h3.textContent.trim(),add:h3.getAttribute("ADD_DATE"),personal:h3.getAttribute("PERSONAL_TOOLBAR_FOLDER"),children:sub&&sub.tagName==="DL"?parseDL(sub):[]};
+          out.push(f);
+        }else{
+          const a=node.querySelector(":scope > A");
+          if(a) out.push({type:"link",name:a.textContent.trim(),href:a.getAttribute("HREF")||"",add:a.getAttribute("ADD_DATE"),icon:a.getAttribute("ICON"),last:a.getAttribute("LAST_MODIFIED")});
+        }
+      }
+      node=node.nextElementSibling;
+    }
+    return out;
+  }
+  return parseDL(root);
+}
+
+function render(){
+  const tree=document.getElementById("tree");
+  tree.innerHTML="";
+  const ul=document.createElement("ul");
+  roots.forEach((f,i)=>ul.appendChild(renderFolder(f,i===0)));
+  tree.appendChild(ul); updateCount();
+}
+function renderFolder(f,isTop){
+  const li=document.createElement("li");
+  const row=document.createElement("div"); row.className="row";
+  const cb=document.createElement("input"); cb.type="checkbox"; cb.dataset.id=f.id; cb.checked=selected.has(f.id);
+  cb.onchange=()=>{toggleFolder(f,cb.checked); render();};
+  const label=document.createElement("label"); label.className="folder"; label.textContent=f.name;
+  const count=document.createElement("span"); count.className="count"; count.textContent=`(${countLinks(f)})`;
+  row.append(cb,label,count); li.appendChild(row);
+  if(f.children.some(x=>x.type==="folder")){
+    const ul=document.createElement("ul");
+    f.children.filter(x=>x.type==="folder").forEach(c=>ul.appendChild(renderFolder(c,false)));
+    li.appendChild(ul);
+  }
+  return li;
+}
+function countLinks(f){return f.children.reduce((n,x)=>n+(x.type==="link"?1:countLinks(x)),0)}
+function toggleFolder(f,on){
+  function walk(x){if(x.type==="folder"){on?selected.add(x.id):selected.delete(x.id);x.children.forEach(walk)}}
+  walk(f);
+}
+function allFolders(){const a=[];function walk(x){if(x.type==="folder"){a.push(x);x.children.forEach(walk)}}roots.forEach(walk);return a}
+function updateCount(){document.getElementById("selected").textContent=`已选择 ${selected.size} 个文件夹`}
+function esc(s){return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;")}
+function attr(s){return s?` "${esc(s)}"`:""}
+function buildDL(items){
+  let out="<DL><p>\n";
+  for(const x of items){
+    if(x.type==="link"){
+      out+=`<DT><A HREF="${esc(x.href)}"${x.add?` ADD_DATE="${esc(x.add)}"`:""}${x.last?` LAST_MODIFIED="${esc(x.last)}"`:""}${x.icon?` ICON="${esc(x.icon)}"`:""}>${esc(x.name)}</A>\n`;
+    }else if(selected.has(x.id)){
+      out+=`<DT><H3${x.add?` ADD_DATE="${esc(x.add)}"`:""}${x.personal?` PERSONAL_TOOLBAR_FOLDER="${esc(x.personal)}"`:""}>${esc(x.name)}</H3>\n`;
+      out+=buildDL(x.children);
+    }
+  }
+  return out+"</DL><p>\n";
+}
+function selectedFolders(items){
+  const out=[];
+  for(const x of items){
+    if(x.type!=="folder") continue;
+    if(selected.has(x.id)) out.push(x);
+    else out.push(...selectedFolders(x.children));
+  }
+  return out;
+}
+function exportBookmarks(){
+  if(!selected.size){alert("请至少选择一个文件夹。");return}
+  const name=(prompt("请输入导出文件名","chrome-bookmarks-selected")||"").trim();
+  if(!name)return;
+  const html='<!DOCTYPE NETSCAPE-Bookmark-file-1>\n<META HTTP-EQUIV="Content-Type" CONTENT="text/html; charset=UTF-8">\n<TITLE>Chrome Bookmarks Archive</TITLE>\n<H1>Chrome Bookmarks Archive</H1>\n'+buildDL(selectedFolders(roots));
+  const blob=new Blob([html],{type:"text/html;charset=utf-8"});
+  const a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download=(name.toLowerCase().endsWith(".html")?name:name+".html");a.click();URL.revokeObjectURL(a.href);
+}
+document.getElementById("file").onchange=e=>{
+  const file=e.target.files[0];if(!file)return;
+  const r=new FileReader();r.onload=()=>{
+    try{
+      folderId=0;selected.clear();roots=parseBookmarks(r.result);
+      document.getElementById("status").textContent=file.name;
+      document.getElementById("empty").style.display="none";document.getElementById("area").style.display="block";render();
+    }catch(err){alert("读取失败："+err.message)}
+  };r.readAsText(file);
+};
+document.getElementById("all").onclick=()=>{allFolders().forEach(f=>selected.add(f.id));render()};
+document.getElementById("none").onclick=()=>{selected.clear();render()};
+document.getElementById("top").onclick=()=>{selected.clear();roots.filter(x=>x.type==="folder").forEach(f=>selected.add(f.id));render()};
+document.getElementById("export").onclick=exportBookmarks;
+</script>
+</body>
+</html>
