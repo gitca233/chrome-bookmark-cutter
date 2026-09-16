@@ -36,3 +36,7 @@
 
 - 零依赖、零构建，单文件 HTML + 原生 JavaScript
 - 复用 Chrome 官方的 NETSCAPE Bookmark HTML 格式，导入器按行识别 `<DT><H3>`（文件夹）与 `<DT><A>`（书签）结构
+
+## License
+
+[MIT](LICENSE)，可自由使用、修改与分发（含商业用途）；软件按“原样”提供，作者不对使用后果承担任何责任。
